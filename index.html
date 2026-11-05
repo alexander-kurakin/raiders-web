@@ -41,6 +41,98 @@
         /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
         (/Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1) ||
         new URLSearchParams(location.search).get("touch") === "1";
+      // RaidersTwo (8.6_8.10): звук на Android. Unity создаёт AudioContext до касания (он suspended) и будит его только на touchstart/mousedown,
+      // а Chrome на Android даёт право на звук лишь touchend/pointerup/click/keydown. Запоминаем контексты и будим их на этих событиях (только сенсорный режим).
+      // ?diag=1 (любой режим) - оверлей в левом верхнем углу: размеры, AudioContext, decodeAudioData, последние warn/error.
+      (function () {
+        var diag = new URLSearchParams(location.search).get("diag") === "1";
+        if (!window.raidersTouchMode && !diag) return;
+        var contexts = [];
+        var wrapped = {};
+        ["AudioContext", "webkitAudioContext"].forEach(function (name) {
+          var Orig = window[name];
+          if (!Orig) return;
+          for (var k in wrapped) if (wrapped[k].orig === Orig) { window[name] = wrapped[k].proxy; return; }
+          var proxy = new Proxy(Orig, {
+            construct: function (target, args) {
+              var ctx = Reflect.construct(target, args);
+              contexts.push(ctx);
+              return ctx;
+            }
+          });
+          wrapped[name] = { orig: Orig, proxy: proxy };
+          window[name] = proxy;
+        });
+
+        if (window.raidersTouchMode) {
+          var resumeAll = function () {
+            for (var i = 0; i < contexts.length; i++) {
+              try {
+                if (contexts[i].state === "suspended") {
+                  var p = contexts[i].resume();
+                  if (p && p.catch) p.catch(function () {});
+                }
+              } catch (e) {}
+            }
+          };
+          ["touchend", "pointerup", "click", "keydown"].forEach(function (type) {
+            window.addEventListener(type, resumeAll, { capture: true, passive: true });
+          });
+        }
+
+        if (!diag) return;
+        var decodeTotal = 0, decodeFailed = 0, lastLogs = [];
+        var proto = window.BaseAudioContext && BaseAudioContext.prototype;
+        if (proto && proto.decodeAudioData) {
+          var origDecode = proto.decodeAudioData;
+          proto.decodeAudioData = function (data, onOk, onFail) {
+            decodeTotal++;
+            if (typeof onOk === "function" || typeof onFail === "function") {
+              return origDecode.call(this, data, onOk, function (e) {
+                decodeFailed++;
+                if (typeof onFail === "function") return onFail.apply(this, arguments);
+              });
+            }
+            var promise = origDecode.apply(this, arguments);
+            if (promise && promise.catch) promise.catch(function () { decodeFailed++; });
+            return promise;
+          };
+        }
+        ["warn", "error"].forEach(function (level) {
+          var orig = console[level];
+          console[level] = function () {
+            try {
+              var text = Array.prototype.map.call(arguments, function (a) { return typeof a === "string" ? a : (a && a.message) || String(a); }).join(" ");
+              lastLogs.push(level + ": " + text.replace(/\s+/g, " ").slice(0, 110));
+              if (lastLogs.length > 5) lastLogs.shift();
+            } catch (e) {}
+            return orig.apply(console, arguments);
+          };
+        });
+
+        var box = document.createElement("div");
+        box.id = "raiders-diag";
+        box.style.cssText = "position:fixed;left:0;top:0;max-width:40vw;z-index:99999;pointer-events:none;box-sizing:border-box;padding:3px 5px;" +
+          "font:10px/1.25 monospace;color:#cfc;background:rgba(0,0,0,0.6);white-space:pre-wrap;word-break:break-all;";
+        (document.getElementById("unity-container") || document.body).appendChild(box);
+        var cv = document.getElementById("unity-canvas");
+        var update = function () {
+          var cr = cv.getBoundingClientRect();
+          var lines = [
+            "win " + innerWidth + "x" + innerHeight + " dpr " + devicePixelRatio + " scr " + screen.width + "x" + screen.height,
+            "canvas buf " + cv.width + "x" + cv.height + " css " + Math.round(cr.width) + "x" + Math.round(cr.height),
+            "fullscreen " + (document.fullscreenElement ? "yes" : "no") + " orient " + (screen.orientation ? screen.orientation.type : "?"),
+            "audio ctx " + contexts.length + " decode " + decodeTotal + " fail " + decodeFailed
+          ];
+          contexts.forEach(function (c, i) {
+            lines.push("  #" + i + " " + c.state + " " + c.sampleRate + "Hz t=" + c.currentTime.toFixed(2));
+          });
+          lastLogs.forEach(function (l) { lines.push(l); });
+          box.textContent = lines.join("\n");
+        };
+        update();
+        setInterval(update, 500);
+      })();
 
       // RaidersTwo (8.6_8.8): полный экран, плашка «Поверни телефон» (CSS, только вертикально), подсказка «На экран Домой» на iPhone/iPad.
       (function () {
