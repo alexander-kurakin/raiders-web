@@ -5,6 +5,11 @@
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <title>Unity Web Player | RaidersTwo</title>
     <link rel="shortcut icon" href="TemplateData/favicon.ico">
+    <!-- RaidersTwo (8.6_8.8): иконка и манифест для «На экран Домой»; viewport-fit=cover не ставим: Safari сам держит страницу вне выреза. -->
+    <link rel="manifest" href="TemplateData/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="TemplateData/app-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <link rel="stylesheet" href="TemplateData/style.css">
   </head>
   <body>
@@ -17,6 +22,11 @@
         </div>
       </div>
       <div id="unity-warning"> </div>
+      <div id="raiders-rotate-plate">
+        <div id="raiders-rotate-icon"></div>
+        <div id="raiders-rotate-title"></div>
+      </div>
+      <div id="raiders-home-hint"><span id="raiders-home-text"></span><div id="raiders-home-close">&#10005;</div></div>
       <div id="unity-footer">
         <div id="unity-logo-title-footer"></div>
         <div id="unity-fullscreen-button"></div>
@@ -24,6 +34,67 @@
       </div>
     </div>
     <script>
+      // RaidersTwo (8.6_8.1): на телефоне рендер в обычном разрешении (DPR 1). Сенсорное устройство или ?touch=1 -> window.raidersTouchMode,
+      // его читает игра через RaidersTouch.jslib. Определение стоит до createUnityInstance и до config.devicePixelRatio.
+      const MOBILE_DEVICE_PIXEL_RATIO = 1;
+      window.raidersTouchMode =
+        /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
+        (/Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1) ||
+        new URLSearchParams(location.search).get("touch") === "1";
+
+      // RaidersTwo (8.6_8.8): полный экран, плашка «Поверни телефон» (CSS, только вертикально), подсказка «На экран Домой» на iPhone/iPad.
+      (function () {
+        if (!window.raidersTouchMode) return;
+        var root = document.documentElement;
+        var ru = /^ru/i.test(navigator.language || "");
+        root.classList.add("raiders-touch");
+        document.getElementById("raiders-rotate-title").textContent = ru ? "Поверни телефон" : "Rotate your phone";
+
+        // iOS игнорирует user-scalable=no: щипок масштабирует страницу, если не гасить gesturestart.
+        document.addEventListener("gesturestart", function (e) { e.preventDefault(); });
+
+        // Android: по первому касанию - полный экран контейнера, затем блокировка горизонтали. Ошибки глотаем.
+        // Жест «назад» выходит из полного экрана: по fullscreenchange (fullscreenElement == null) снова ждём первого касания.
+        if (/Android/i.test(navigator.userAgent)) {
+          var armed = false;
+          var arm = function () {
+            armed = false;
+            document.addEventListener("pointerup", goFullscreen, true);
+            document.addEventListener("touchend", goFullscreen, true);
+          };
+          var goFullscreen = function () {
+            if (armed) return;
+            armed = true;
+            document.removeEventListener("pointerup", goFullscreen, true);
+            document.removeEventListener("touchend", goFullscreen, true);
+            try {
+              var container = document.getElementById("unity-container");
+              var request = container.requestFullscreen ? container.requestFullscreen() : null;
+              Promise.resolve(request).then(function () {
+                return screen.orientation && screen.orientation.lock ? screen.orientation.lock("landscape") : null;
+              }).catch(function (e) { console.log("[RaidersTwo] fullscreen/orientation: " + e); });
+            } catch (e) { console.log("[RaidersTwo] fullscreen/orientation: " + e); }
+          };
+          document.addEventListener("fullscreenchange", function () {
+            if (document.fullscreenElement == null && armed) arm();
+          });
+          arm();
+        }
+
+        // iPhone/iPad Safari: не в iframe и не с иконки на домашнем экране. Лёжа - первые 8 с, вертикально - пока плашка поворота.
+        var isIos = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (/Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+        if (isIos && window.top === window.self && navigator.standalone !== true) {
+          document.getElementById("raiders-home-text").textContent = ru
+            ? "На весь экран: Поделиться → На экран Домой"
+            : "Fullscreen: Share → Add to Home Screen";
+          root.classList.add("raiders-ios-hint", "raiders-hint-landscape");
+          setTimeout(function () { root.classList.remove("raiders-hint-landscape"); }, 8000);
+          document.getElementById("raiders-home-close").addEventListener("click", function () {
+            root.classList.remove("raiders-ios-hint", "raiders-hint-landscape");
+          });
+        }
+      })();
+
       var canvas = document.querySelector("#unity-canvas");
 
       // Shows a temporary message banner/ribbon for a few seconds, or
@@ -84,7 +155,7 @@
       // Единственная правка шаблона Default из Unity 6000.3.
       config.autoSyncPersistentDataPath = true;
 
-      if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+      if (window.raidersTouchMode) {
         // Mobile device style: fill the whole browser client area with the game canvas:
 
         var meta = document.createElement('meta');
@@ -94,9 +165,8 @@
         document.querySelector("#unity-container").className = "unity-mobile";
         canvas.className = "unity-mobile";
 
-        // To lower canvas resolution on mobile devices to gain some
-        // performance, uncomment the following line:
-        // config.devicePixelRatio = 1;
+        // RaidersTwo: обычное разрешение на сенсорном устройстве (и при ?touch=1 на ПК).
+        config.devicePixelRatio = MOBILE_DEVICE_PIXEL_RATIO;
 
 
       } else {

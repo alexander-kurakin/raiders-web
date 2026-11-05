@@ -14,3 +14,27 @@ body { padding: 0; margin: 0 }
 #unity-build-title { float: right; margin-right: 10px; line-height: 38px; font-family: arial; font-size: 18px }
 #unity-fullscreen-button { cursor:pointer; float: right; width: 38px; height: 38px; background: url('fullscreen-button.png') no-repeat center }
 #unity-warning { position: absolute; left: 50%; top: 5%; transform: translate(-50%); background: white; padding: 10px; display: none }
+
+/* RaidersTwo (8.6_8.8): плашка «Поверни телефон» и подсказка «На экран Домой». Только при window.raidersTouchMode (класс raiders-touch на <html>). */
+/* Шрифт UI игры - Sofia Sans Condensed Bold (есть кириллица). */
+@font-face { font-family: 'Sofia Sans Condensed'; font-weight: 700; src: url('SofiaSansCondensed-Bold.ttf') format('truetype'); }
+#raiders-rotate-plate, #raiders-home-hint { display: none; font-family: 'Sofia Sans Condensed', 'Arial Narrow', Arial, sans-serif; font-weight: 700; color: #fff; text-align: center }
+#raiders-rotate-plate { position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 20; background: #0b0d10; flex-direction: column; align-items: center; justify-content: center }
+#raiders-rotate-title { font-size: 11vw; letter-spacing: 0.04em; text-transform: uppercase }
+#raiders-rotate-icon { width: 22vw; height: 12vw; margin-bottom: 6vw; border: 0.8vw solid #fff; border-radius: 2vw; animation: raiders-rotate 2s ease-in-out infinite }
+@keyframes raiders-rotate { 0%, 20% { transform: rotate(90deg) } 70%, 100% { transform: rotate(0deg) } }
+#raiders-home-hint { position: absolute; z-index: 21; left: 4vw; right: 4vw; padding: 2vw 11vw 2vw 3vw; background: rgba(0, 0, 0, 0.82); border: 1px solid #5a6068; border-radius: 6px; font-size: 5vw; line-height: 1.15 }
+#raiders-home-hint { pointer-events: none }
+#raiders-home-close { pointer-events: auto; position: absolute; right: 0; top: 0; bottom: 0; width: 10vw; display: flex; align-items: center; justify-content: center; font-size: 7vw; cursor: pointer }
+.raiders-touch.raiders-ios-hint #raiders-home-hint { display: block; bottom: 6vh }
+/* Жесты браузера на телефоне: игра сама разбирает касания, щипок и прокрутка страницы не нужны. */
+.raiders-touch, .raiders-touch body, .raiders-touch #unity-canvas { touch-action: none; overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none }
+@media (orientation: portrait) {
+  .raiders-touch #raiders-rotate-plate { display: flex }
+}
+@media (orientation: landscape) {
+  #raiders-home-hint { font-size: 3vw; left: 20vw; right: 20vw; padding: 1vw 7vw 1vw 2vw }
+  #raiders-home-close { width: 6vw; font-size: 4vw }
+  .raiders-touch.raiders-ios-hint:not(.raiders-hint-landscape) #raiders-home-hint { display: none }
+  .raiders-touch.raiders-ios-hint #raiders-home-hint { bottom: auto; top: 3vh }
+}
