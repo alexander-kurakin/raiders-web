@@ -34,13 +34,23 @@
       </div>
     </div>
     <script>
-      // RaidersTwo (8.6_8.1): на телефоне рендер в обычном разрешении (DPR 1). Сенсорное устройство или ?touch=1 -> window.raidersTouchMode,
+      // RaidersTwo (8.6_8.1): сенсорное устройство или ?touch=1 -> window.raidersTouchMode,
       // его читает игра через RaidersTouch.jslib. Определение стоит до createUnityInstance и до config.devicePixelRatio.
-      const MOBILE_DEVICE_PIXEL_RATIO = 1;
+      // 8.6_8.13: на телефоне канвас в родном разрешении: DPR = min(devicePixelRatio, MOBILE_MAX_DEVICE_PIXEL_RATIO), ?dpr=<число> переопределяет.
+      // Итог - window.raidersDpr (его читает игра: пиксели управления в CSS px и render scale 1/dpr). ?rs=<0.1..1> -> window.raidersRenderScale
+      // (render scale 3D; без параметра не задан - игра берёт 1/dpr). На ПК без ?touch=1 ничего не меняется.
+      const MOBILE_MAX_DEVICE_PIXEL_RATIO = 3;
       window.raidersTouchMode =
         /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
         (/Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1) ||
         new URLSearchParams(location.search).get("touch") === "1";
+      if (window.raidersTouchMode) {
+        var qs = new URLSearchParams(location.search);
+        var dprParam = parseFloat(qs.get("dpr"));
+        var rsParam = parseFloat(qs.get("rs"));
+        window.raidersDpr = dprParam > 0 ? dprParam : Math.min(window.devicePixelRatio || 1, MOBILE_MAX_DEVICE_PIXEL_RATIO);
+        if (rsParam > 0) window.raidersRenderScale = Math.min(Math.max(rsParam, 0.1), 1);
+      }
       // RaidersTwo (8.6_8.10): звук на Android. Unity создаёт AudioContext до касания (он suspended) и будит его только на touchstart/mousedown,
       // а Chrome на Android даёт право на звук лишь touchend/pointerup/click/keydown. Запоминаем контексты и будим их на этих событиях (только сенсорный режим).
       // ?diag=1 (любой режим) - оверлей в левом верхнем углу: размеры, AudioContext, decodeAudioData, последние warn/error.
@@ -120,6 +130,7 @@
           var cr = cv.getBoundingClientRect();
           var lines = [
             "win " + innerWidth + "x" + innerHeight + " dpr " + devicePixelRatio + " scr " + screen.width + "x" + screen.height,
+            "dpr " + (window.raidersDpr || "-") + " rs " + (window.raidersRenderScale || "-"),
             "canvas buf " + cv.width + "x" + cv.height + " css " + Math.round(cr.width) + "x" + Math.round(cr.height),
             "fullscreen " + (document.fullscreenElement ? "yes" : "no") + " orient " + (screen.orientation ? screen.orientation.type : "?"),
             "audio ctx " + contexts.length + " decode " + decodeTotal + " fail " + decodeFailed
@@ -257,8 +268,8 @@
         document.querySelector("#unity-container").className = "unity-mobile";
         canvas.className = "unity-mobile";
 
-        // RaidersTwo: обычное разрешение на сенсорном устройстве (и при ?touch=1 на ПК).
-        config.devicePixelRatio = MOBILE_DEVICE_PIXEL_RATIO;
+        // RaidersTwo (8.6_8.13): родной DPR на сенсорном устройстве (и при ?touch=1 на ПК).
+        config.devicePixelRatio = window.raidersDpr;
 
 
       } else {
