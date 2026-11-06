@@ -61,6 +61,8 @@
       // RaidersTwo (8.6_8.10): звук на Android. Unity создаёт AudioContext до касания (он suspended) и будит его только на touchstart/mousedown,
       // а Chrome на Android даёт право на звук лишь touchend/pointerup/click/keydown. Запоминаем контексты и будим их на этих событиях (только сенсорный режим).
       // ?diag=1 (любой режим) - оверлей в левом верхнем углу: размеры, AudioContext, decodeAudioData, последние warn/error.
+      // 8.6_8.16: ещё строка кучи wasm (heap - вся память, used - занято, peak - пик занятого), строка tex (сжатые форматы текстур GPU) и панель необработанной ошибки
+      // (window error, unhandledrejection, обработчик ошибок Unity): сообщение и первые строки стека крупно поверх игры - для скриншота с телефона.
       (function () {
         var diag = new URLSearchParams(location.search).get("diag") === "1";
         if (!window.raidersTouchMode && !diag) return;
@@ -133,13 +135,105 @@
           "font:10px/1.25 monospace;color:#cfc;background:rgba(0,0,0,0.6);white-space:pre-wrap;word-break:break-all;";
         (document.getElementById("unity-container") || document.body).appendChild(box);
         var cv = document.getElementById("unity-canvas");
+
+        // Куча: GetMetricsInfo инстанса Unity (его передаёт raidersDiag.attach). После ошибки из wasm его больше не зовём:
+        // куча может быть испорчена, вызов в wasm мог бы упасть снова; вся память дальше - по длине HEAP8 (это JS, без вызова в wasm).
+        var MB = 1048576, STACK_LINES = 15;
+        var unity = null, metricsStopped = false;
+        var heap = { total: 0, used: 0, peak: 0, fps: 0 };
+        var errors = [], panelCollapsed = false;
+        var texLine = "tex ?";
+        var uptime = function () {
+          var s = Math.floor(performance.now() / 1000);
+          return Math.floor(s / 60) + ":" + ("0" + s % 60).slice(-2);
+        };
+        var readHeap = function () {
+          if (!unity) return;
+          if (!metricsStopped) {
+            try {
+              var m = unity.GetMetricsInfo();
+              heap.total = m.totalWASMHeapSize;
+              heap.used = m.usedWASMHeapSize;
+              heap.fps = m.movingAverageFps || m.fps || 0;
+            } catch (e) { metricsStopped = true; }
+          }
+          try { heap.total = unity.Module.HEAP8.length; } catch (e) {}
+          heap.peak = Math.max(heap.peak, heap.used);
+        };
+        var heapLine = function () {
+          return "heap " + Math.round(heap.total / MB) + " MB used " + Math.round(heap.used / MB) + " peak " + Math.round(heap.peak / MB) +
+            (metricsStopped ? " (stop)" : "") + " fps " + Math.round(heap.fps) + " up " + uptime();
+        };
+
+        var panel = document.createElement("div");
+        panel.id = "raiders-diag-error";
+        panel.style.cssText = "position:fixed;left:0;top:0;right:0;max-height:100%;overflow:hidden;z-index:100000;display:none;box-sizing:border-box;padding:6px 8px;" +
+          "font:13px/1.25 monospace;color:#fff;background:rgba(110,0,0,0.92);white-space:pre-wrap;word-break:break-all;";
+        // Тап по панели сворачивает её до строки (игра идёт дальше, если ошибка не смертельная) и разворачивает обратно.
+        panel.addEventListener("click", function () { panelCollapsed = !panelCollapsed; showPanel(); });
+        (document.getElementById("unity-container") || document.body).appendChild(panel);
+        var shortStack = function (stack, message) {
+          if (!stack) return [];
+          var lines = stack.split("\n").map(function (l) { return l.trim().replace(/https?:\/\/[^\s)]*\//g, ""); }).filter(function (l) { return l; });
+          if (lines.length && message.indexOf(lines[0]) >= 0) lines.shift();
+          return lines.slice(0, STACK_LINES);
+        };
+        var showPanel = function () {
+          if (!errors.length) return;
+          var first = errors[0], last = errors[errors.length - 1];
+          var head = "ERROR " + errors.length + " | at " + first.t + " | " + first.heap;
+          var lines = panelCollapsed ? [head + " | " + first.message.split("\n")[0]] :
+            [head, first.message.split("\n")[0]].concat(shortStack(first.stack, first.message));
+          if (!panelCollapsed && errors.length > 1) lines.push("last (" + last.t + "): " + last.message.split("\n")[0].slice(0, 160));
+          if (!panelCollapsed) lines.push("(tap - collapse)");
+          panel.textContent = lines.join("\n");
+          panel.style.display = "block";
+        };
+        var addError = function (message, stack) {
+          message = String(message || "?");
+          var prev = errors[errors.length - 1];
+          // Unity передаёт в свой обработчик ту же ошибку, что пришла в window error, - второй раз не пишем.
+          if (prev && performance.now() - prev.at < 2000 && (message.indexOf(prev.message.split("\n")[0]) >= 0)) return;
+          if (/RuntimeError|Aborted|wasm|memory access/i.test(message + " " + (stack || ""))) metricsStopped = true;
+          readHeap();
+          errors.push({ at: performance.now(), t: uptime(), heap: heapLine(), message: message, stack: stack });
+          showPanel();
+        };
+        var onError = function (e) {
+          if (e.type === "error" && !(e instanceof ErrorEvent)) return;
+          var err = e.type === "error" ? e.error : e.reason;
+          var message = err && err.message ? (err.name ? err.name + ": " : "") + err.message : String(e.message || e.reason || "?");
+          addError(message, err && typeof err.stack === "string" ? err.stack : null);
+        };
+        window.addEventListener("error", onError, true);
+        window.addEventListener("unhandledrejection", onError, true);
+        // attach - из createUnityInstance(...).then; unityError - обработчик ошибок Unity (config.errorHandler) и отказ запуска,
+        // false - Unity показывает ошибку как раньше.
+        window.raidersDiag = {
+          attach: function (unityInstance) {
+            unity = unityInstance;
+            // Сжатые форматы текстур GPU: без s3tc Unity распаковывает текстуры сборки (DXT) в RGBA - на GPU они в ~5 раз больше.
+            try {
+              var gl = cv.getContext("webgl2") || cv.getContext("webgl");
+              var ext = gl ? gl.getSupportedExtensions() || [] : [];
+              texLine = "tex " + ["s3tc", "etc", "astc", "bptc"].map(function (f) {
+                return f + (ext.some(function (x) { return /compress/i.test(x) && x.indexOf("_" + f) >= 0; }) ? "+" : "-");
+              }).join(" ") + " max " + (gl ? gl.getParameter(gl.MAX_TEXTURE_SIZE) : "?");
+            } catch (e) { texLine = "tex ? " + e; }
+          },
+          unityError: function (message) { addError(message, null); return false; }
+        };
+
         var update = function () {
           var cr = cv.getBoundingClientRect();
+          readHeap();
           var lines = [
             "win " + innerWidth + "x" + innerHeight + " dpr " + devicePixelRatio + " scr " + screen.width + "x" + screen.height,
             "dpr " + (window.raidersDpr || "-") + " rs " + (window.raidersRenderScale || "-") + " look " + (window.raidersLook || 1) + " autofire " + (window.raidersAutoFire === false ? "off" : "on"),
             "canvas buf " + cv.width + "x" + cv.height + " css " + Math.round(cr.width) + "x" + Math.round(cr.height),
             "fullscreen " + (document.fullscreenElement ? "yes" : "no") + " orient " + (screen.orientation ? screen.orientation.type : "?"),
+            heapLine(),
+            texLine,
             "audio ctx " + contexts.length + " decode " + decodeTotal + " fail " + decodeFailed
           ];
           contexts.forEach(function (c, i) {
@@ -265,6 +359,9 @@
       // Единственная правка шаблона Default из Unity 6000.3.
       config.autoSyncPersistentDataPath = true;
 
+      // RaidersTwo (8.6_8.16): с ?diag=1 ошибки из обработчика Unity идут ещё и в панель оверлея; он возвращает false - Unity показывает их как раньше.
+      if (window.raidersDiag) config.errorHandler = window.raidersDiag.unityError;
+
       if (window.raidersTouchMode) {
         // Mobile device style: fill the whole browser client area with the game canvas:
 
@@ -294,11 +391,13 @@
           document.querySelector("#unity-progress-bar-full").style.width = 100 * progress + "%";
               }).then((unityInstance) => {
                 document.querySelector("#unity-loading-bar").style.display = "none";
+                if (window.raidersDiag) window.raidersDiag.attach(unityInstance);
                 document.querySelector("#unity-fullscreen-button").onclick = () => {
                   unityInstance.SetFullscreen(1);
                 };
 
               }).catch((message) => {
+                if (window.raidersDiag) window.raidersDiag.unityError(message);
                 alert(message);
               });
             };
