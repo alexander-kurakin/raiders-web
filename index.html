@@ -40,7 +40,7 @@
       // Итог - window.raidersDpr (его читает игра: пиксели управления в CSS px и render scale 1/dpr). ?rs=<0.1..1> -> window.raidersRenderScale
       // (render scale 3D; без параметра не задан - игра берёт 1/dpr). На ПК без ?touch=1 ничего не меняется.
       // 8.6_8.14: ?dpr= не больше MAX_DPR_PARAM; ?look=<0.25..4> -> window.raidersLook (множитель свайпа, без параметра игра берёт 1);
-      // ?autofire=0 -> window.raidersAutoFire = false (автовыстрел по захвату цели выключен; без параметра включён).
+      // 8.6_9.4: ?autofire=1 -> window.raidersAutoFire = true (автовыстрел по захвату цели для проверки; без параметра и при ?autofire=0 выключен, стреляет кнопка «огонь»).
       const MOBILE_MAX_DEVICE_PIXEL_RATIO = 3;
       const MAX_DPR_PARAM = 4;
       const MIN_LOOK = 0.25, MAX_LOOK = 4;
@@ -56,7 +56,7 @@
         window.raidersDpr = dprParam > 0 ? Math.min(dprParam, MAX_DPR_PARAM) : Math.min(window.devicePixelRatio || 1, MOBILE_MAX_DEVICE_PIXEL_RATIO);
         if (rsParam > 0) window.raidersRenderScale = Math.min(Math.max(rsParam, 0.1), 1);
         if (lookParam > 0) window.raidersLook = Math.min(Math.max(lookParam, MIN_LOOK), MAX_LOOK);
-        window.raidersAutoFire = qs.get("autofire") !== "0";
+        window.raidersAutoFire = qs.get("autofire") === "1";
       }
       // RaidersTwo (8.6_8.10): звук на Android. Unity создаёт AudioContext до касания (он suspended) и будит его только на touchstart/mousedown,
       // а Chrome на Android даёт право на звук лишь touchend/pointerup/click/keydown. Запоминаем контексты и будим их на этих событиях (только сенсорный режим).
