@@ -229,7 +229,7 @@
           readHeap();
           var lines = [
             "win " + innerWidth + "x" + innerHeight + " dpr " + devicePixelRatio + " scr " + screen.width + "x" + screen.height,
-            "dpr " + (window.raidersDpr || "-") + " rs " + (window.raidersRenderScale || "-") + " look " + (window.raidersLook || 1) + " autofire " + (window.raidersAutoFire === false ? "off" : "on"),
+            "dpr " + (window.raidersDpr || "-") + " rs " + (window.raidersRenderScale || "-") + " look " + (window.raidersLook || 1) + " autofire " + (window.raidersAutoFire === true ? "on" : "off"),
             "canvas buf " + cv.width + "x" + cv.height + " css " + Math.round(cr.width) + "x" + Math.round(cr.height),
             "fullscreen " + (document.fullscreenElement ? "yes" : "no") + " orient " + (screen.orientation ? screen.orientation.type : "?"),
             heapLine(),
@@ -336,7 +336,7 @@
         streamingAssetsUrl: "StreamingAssets",
         companyName: "DefaultCompany",
         productName: "RaidersTwo",
-        productVersion: "0.1.0",
+        productVersion: "0.2.1",
         showBanner: unityShowBanner,
         // errorHandler: function(err, url, line) {
         //    alert("error " + err + " occurred at line " + line);
